@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Order App</title>
+  </head>
+  <body>
+    <h1>Order Form</h1>
+    <form action="/submit" method="POST">
+      <input type="text" name="new_message" placeholder="Enter your order" required>
+      <input type="submit" value="Submit">
+    </form>
+
+    <h2>Order History</h2>
+    <ul>
+      {% for msg in messages %}
+        <li>{{ msg[0] }}</li>
+      {% endfor %}
+    </ul>
+  </body>
+</html>

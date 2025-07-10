@@ -1,0 +1,19 @@
+# flask-servicemonitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flask-app-monitor
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: flask-app
+  namespaceSelector:
+    matchNames:
+      - default  # Change if app is in a different namespace
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-kube-prometheus-stack-alertmanager.rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+    release: kube-prometheus-stack
+data:
+  alertmanager.rules.yaml: |
+    groups:
+      - name: app-alerts
+        interval: 30s
+        rules:
+          # App error rate > 5% (status=5xx)
+          - alert: HighAppErrorRate
+            expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "More than 5% of requests are failing (5xx)"
+              description: "The error rate is above 5% for the past 5 minutes."
+
+          # High Latency (P95 > 1s)
+          - alert: HighLatency
+            expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+            for: 5m
+            labels:
+              severity: high
+            annotations:
+              summary: "95th percentile of HTTP request duration is greater than 1 second"
+              description: "The latency of HTTP requests is above 1 second for the last 5 minutes."
+
+          # High Memory Usage (> 85%)
+          - alert: HighMemoryUsage
+            expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 85
+            for: 5m
+            labels:
+              severity: high
+            annotations:
+              summary: "Memory usage above 85%"
+              description: "The memory usage is greater than 85% for the last 5 minutes."
+
+          # High Disk Usage (> 90%)
+          - alert: HighDiskUsage
+            expr: (node_filesystem_usage{mountpoint="/"} * 100) > 90
+            for: 5m
+            labels:
+              severity: high
+            annotations:
+              summary: "Disk usage above 90%"
+              description: "The disk usage is greater than 90% for the last 5 minutes."
+
+          # App down (no /health calls in 5 min)
+          - alert: AppDown
+            expr: absent(http_requests_total{job="your-app", status="200"}[5m])
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "App is down (no /health calls in 5 minutes)"
+              description: "The application is not responding to health checks for the last 5 minutes."
+
+          # Alertmanager-related rules
+          - alert: AlertmanagerFailedReload
+            expr: max_over_time(alertmanager_config_last_reload_successful{job="kube-prometheus-stack-alertmanager", namespace="monitoring"}[5m]) == 0
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              description: "Configuration has failed to load for {{ $labels.namespace }}/{{ $labels.pod }}"
+              runbook_url: "https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerfailedreload"
+              summary: "Reloading an Alertmanager configuration has failed."
+
+          - alert: AlertmanagerMembersInconsistent
+            expr: max_over_time(alertmanager_cluster_members{job="kube-prometheus-stack-alertmanager", namespace="monitoring"}[5m]) < on(namespace, service, cluster) group_left count by (namespace, service, cluster) (max_over_time(alertmanager_cluster_members{job="kube-prometheus-stack-alertmanager", namespace="monitoring"}[5m]))
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              description: "Alertmanager {{ $labels.namespace }}/{{ $labels.pod }} has only found {{ $value }} members of the {{$labels.job}} cluster."
+              runbook_url: "https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagermembersinconsistent"
+              summary: "A member of an Alertmanager cluster has not found all other cluster members."
+
+          - alert: AlertmanagerFailedToSendAlerts
+            expr: rate(alertmanager_notifications_failed_total{job="kube-prometheus-stack-alertmanager", namespace="monitoring"}[15m]) / ignoring(reason) group_left rate(alertmanager_notifications_total{job="kube-prometheus-stack-alertmanager", namespace="monitoring"}[15m]) > 0.01
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              description: "Alertmanager {{ $labels.namespace }}/{{ $labels.pod }} failed to send {{ $value | humanizePercentage }} of notifications to {{ $labels.integration }}."
+              runbook_url: "https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerfailedtosendalerts"
+              summary: "An Alertmanager instance failed to send notifications."
+
+          - alert: AlertmanagerClusterFailedToSendAlerts
+            expr: min by (namespace, service, integration) (rate(alertmanager_notifications_failed_total{job="kube-prometheus-stack-alertmanager", namespace="monitoring", integration=~`.*`}[15m])) / ignoring(reason) group_left rate(alertmanager_notifications_total{job="kube-prometheus-stack-alertmanager", namespace="monitoring"}[15m]) > 0.01
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              description: "The minimum notification failure rate to {{ $labels.integration }} sent from any instance in the {{$labels.job}} cluster is {{ $value | humanizePercentage }}."
+              runbook_url: "https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclusterfailedtosendalerts"
+              summary: "All Alertmanager instances in a cluster failed to send notifications to a critical integration."
